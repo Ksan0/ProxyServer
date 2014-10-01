@@ -5,7 +5,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 
 public class ProxyServerStarter {
-    private static final int WORKERS_COUNT = 16;
+    private static final int WORKERS_COUNT = 4;
 
     public static void main(String args[]) {
         ArrayList<Thread> threads = new ArrayList<>();

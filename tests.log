@@ -1,0 +1,73 @@
+test command: ab -n 50000 -c 1000 -r
+test page: https://github.com/init/http-test-suite/tree/master/httptest/wikipedia_russia.html
+
+
+nginx:
+
+Concurrency Level:      1000
+Time taken for tests:   16.994 seconds
+Complete requests:      50000
+Failed requests:        50370
+   (Connect: 0, Receive: 370, Length: 49374, Exceptions: 626)
+Non-2xx responses:      1
+Total transferred:      47154671451 bytes
+HTML transferred:       47142525533 bytes
+Requests per second:    2942.21 [#/sec] (mean)
+Time per request:       339.880 [ms] (mean)
+Time per request:       0.340 [ms] (mean, across all concurrent requests)
+Transfer rate:          2709749.39 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0   29 220.6      5    3006
+Processing:     4  308 139.8    350    1620
+Waiting:        0   20  97.9      8    1460
+Total:         10  337 272.6    355    4246
+
+Percentage of the requests served within a certain time (ms)
+  50%    355
+  66%    368
+  75%    375
+  80%    379
+  90%    389
+  95%    402
+  98%   1037
+  99%   1564
+ 100%   4246 (longest request)
+
+
+
+MyOwnProxyServer:
+
+Concurrency Level:      1000
+Time taken for tests:   15.213 seconds
+Complete requests:      50000
+Failed requests:        47
+   (Connect: 0, Receive: 0, Length: 47, Exceptions: 0)
+Total transferred:      47753356814 bytes
+HTML transferred:       47741056814 bytes
+Requests per second:    3286.66 [#/sec] (mean)
+Time per request:       304.260 [ms] (mean)
+Time per request:       0.304 [ms] (mean, across all concurrent requests)
+Transfer rate:          3065413.83 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0   45 274.1      4    3007
+Processing:     1  258 128.9    285    3518
+Waiting:        0   16  98.7      6    3271
+Total:          2  303 336.7    291    4518
+
+Percentage of the requests served within a certain time (ms)
+  50%    291
+  66%    304
+  75%    312
+  80%    318
+  90%    329
+  95%    345
+  98%   1303
+  99%   1593
+ 100%   4518 (longest request)
+
+
+

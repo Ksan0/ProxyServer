@@ -1,6 +1,7 @@
 package ProxyServer;
 
 
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.Date;
 import java.util.Map;
@@ -9,14 +10,20 @@ import java.util.concurrent.atomic.AtomicLong;
 
 
 public class ConnectionsWorker implements Runnable {
+    public static final int DEFAULT_BUFFER_SIZE = 1024 * 16;
+
+    public static final int RES_REMOVE_SOCKETS = 1 << 0;
+    public static final int RES_ALLOCATE_BUFFER = 1 << 1;
 
     private AtomicLong lastCycleRunTime;
     private ConcurrentHashMap<SocketChannel, SocketChannelExtender> sockets;
 
+    private RWSocketChannelBuffer readBuffer;
 
     public ConnectionsWorker() {
         lastCycleRunTime = new AtomicLong(0);
         sockets = new ConcurrentHashMap<>();
+        readBuffer = new RWSocketChannelBuffer(DEFAULT_BUFFER_SIZE);
     }
 
 
@@ -40,9 +47,15 @@ public class ConnectionsWorker implements Runnable {
 
             for(Map.Entry<SocketChannel, SocketChannelExtender> entry: sockets.entrySet()) {
 
-                if (!entry.getValue().exec()) {
+                int res = entry.getValue().exec(readBuffer);
+                if ((res & RES_REMOVE_SOCKETS) != 0) {
                     sockets.remove(entry.getValue().getSecondChannel());
                     sockets.remove(entry.getKey());
+                }
+                if ((res & RES_ALLOCATE_BUFFER) != 0) {
+                    readBuffer = new RWSocketChannelBuffer(DEFAULT_BUFFER_SIZE);
+                } else {
+                    readBuffer.clear();
                 }
 
             }

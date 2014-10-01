@@ -3,21 +3,20 @@ package ProxyServer;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {
-    public static final int DEFAULT_BUFFER_SIZE = 1024 * 16;
-
     private ConnectionsAccepter connectionsAccepter;
     private SocketChannelExtender secondChannel;
 
     private SocketChannel channel;
-    private ByteBuffer readBuffer;  // what we read from this.channel
-    private ByteBuffer writeBuffer;  // what we must write to this.channel
+    private RWSocketChannelBuffer readBuffer;  // what we read from this.channel and must write to secondChannel
 
     private AtomicInteger rwState;
 
@@ -25,9 +24,7 @@ public class SocketChannelExtender {
         this.connectionsAccepter = connectionsAccepter;
         this.channel = channel;
 
-        readBuffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
-        writeBuffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
-        writeBuffer.limit(0);
+        readBuffer = null;
 
         rwState = new AtomicInteger(0);
     }
@@ -48,46 +45,40 @@ public class SocketChannelExtender {
         rwState.set(value);
     }
 
-    public boolean exec() {
+    public int exec(RWSocketChannelBuffer workerBuffer) {
+        int result = 0;
         int rwState = this.rwState.get();
 
         try {
             if ((rwState & SelectionKey.OP_READ) != 0) {
-                int read = channel.read(readBuffer);
-                if (read == -1) {
-                    close();
-                    return false;
-                }
-
-                if (this.readBuffer.remaining() > 0 && secondChannel.writeBuffer.remaining() <= 0)
-                {
-                    secondChannel.writeBufferUpdate();
-                    secondChannel.channel.write(secondChannel.writeBuffer);
-                }
+                this.rwState.set(rwState & ~SelectionKey.OP_READ);
+                RWSocketChannelBuffer usingBuffer = readBuffer != null ? readBuffer : workerBuffer;
+                result |= readWriteCycle(usingBuffer, workerBuffer);
             }
-            if ((rwState & SelectionKey.OP_WRITE) != 0) {
-                channel.write(writeBuffer);
 
-                if (this.writeBuffer.remaining() <= 0) {
-                    writeBufferUpdate();
+            if ((rwState & SelectionKey.OP_WRITE) != 0) {
+                this.rwState.set(rwState & ~SelectionKey.OP_WRITE);
+                if (secondChannel.readBuffer != null) {
+                    result |= secondChannel.readWriteCycle(secondChannel.readBuffer, null);
                 }
             }
         } catch (NotYetConnectedException e) {
         } catch (IOException e) {
             close();
-            return false;
+            return ConnectionsWorker.RES_REMOVE_SOCKETS;
         }
 
-        this.rwState.set(0);
-        return true;
+        return result;
     }
 
     public void close() {
         try {
+            readBuffer = null;
             channel.close();
         } catch (Exception e) {
         }
         try {
+            secondChannel.readBuffer = null;
             secondChannel.channel.close();
         } catch (Exception e) {
         }
@@ -95,14 +86,33 @@ public class SocketChannelExtender {
         connectionsAccepter.removeSocketChannel(this);
     }
 
-    private void writeBufferUpdate() {
-        ByteBuffer tmp = writeBuffer;
+    private int readWriteCycle(RWSocketChannelBuffer usingBuffer, RWSocketChannelBuffer workerBuffer)
+            throws IOException
+    {
+        int result = 0;
 
-        writeBuffer = secondChannel.readBuffer;
-        writeBuffer.flip();
+        int read;
+        int write;
+        do {
+            write = usingBuffer.write(secondChannel.channel);
+            read = usingBuffer.read(channel);
+            if (read == -1) {
+                throw new IOException();
+            }
+        } while (usingBuffer.canWrite() && read > 0 && write > 0);
 
-        tmp.position(0);
-        tmp.limit(tmp.capacity());
-        secondChannel.readBuffer = tmp;
+        if (usingBuffer.canWrite()) {
+            if (usingBuffer == workerBuffer) {
+                readBuffer = workerBuffer;
+                result |= ConnectionsWorker.RES_ALLOCATE_BUFFER;
+            }
+        } else {
+            if (usingBuffer == readBuffer) {
+                readBuffer = null;
+            }
+        }
+
+        return result;
     }
+
 }

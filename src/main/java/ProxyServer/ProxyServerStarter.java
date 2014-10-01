@@ -21,7 +21,7 @@ public class ProxyServerStarter {
         System.out.println("--- Statistic ---");
         System.out.println("ConnectionAccepters count = " + accepters.size());
         System.out.println("Workers count = " + workers.size());
-        System.out.println("One connection take = " + SocketChannelExtender.DEFAULT_BUFFER_SIZE * 4 / 1024.0f + " KB");
+        System.out.println("Worker buffer size = " + ConnectionsWorker.DEFAULT_BUFFER_SIZE * 4 / 1024.0f + " KB");
 
         // start all
         System.out.println("----------------");

@@ -23,9 +23,9 @@ Failed requests:        50370
 Non-2xx responses:      1  
 Total transferred:      47154671451 bytes  
 HTML transferred:       47142525533 bytes  
-Requests per second:    2977.50 [#/sec] (mean)  
-Time per request:       335.852 [ms] (mean)  
-Time per request:       0.336 [ms] (mean, across all concurrent requests)  
+Requests per second:    2977.50 [#/sec] mean  
+Time per request:       335.852 [ms] mean  
+Time per request:       0.336 [ms] mean, across all concurrent requests  
 Transfer rate:          2742249.91 [Kbytes/sec] received  
 
 Connection Times (ms)
@@ -62,9 +62,9 @@ Failed requests:        1586
    (Connect: 0, Receive: 0, Length: 1586, Exceptions: 0)  
 Total transferred:      47506933129 bytes  
 HTML transferred:       47494633129 bytes  
-Requests per second:    2801.01 [#/sec] (mean)  
-Time per request:       357.014 [ms] (mean)  
-Time per request:       0.357 [ms] (mean, across all concurrent requests)  
+Requests per second:    2801.01 [#/sec] mean  
+Time per request:       357.014 [ms] mean  
+Time per request:       0.357 [ms] mean, across all concurrent requests  
 Transfer rate:          2598970.79 [Kbytes/sec] received  
 
 Connection Times (ms)

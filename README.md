@@ -1,8 +1,8 @@
 Run
 ---
 
-compile: mvn compile  
-run: mvn exec:java
+mvn compile  
+mvn exec:java
 
 
 Нагрузочное тестирование

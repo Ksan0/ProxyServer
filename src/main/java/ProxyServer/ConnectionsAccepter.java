@@ -1,8 +1,6 @@
 package ProxyServer;
 
 
-import sun.awt.SunToolkit;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;

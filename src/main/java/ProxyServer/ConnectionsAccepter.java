@@ -101,7 +101,9 @@ public class ConnectionsAccepter implements Runnable {
                             }
                         } catch (CancelledKeyException | IOException e) {
                             SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
-                            socketChannelExtender.close();
+                            if (socketChannelExtender != null) {
+                                socketChannelExtender.close();
+                            }
                         }
                     }
 

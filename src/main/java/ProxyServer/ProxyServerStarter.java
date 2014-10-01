@@ -35,7 +35,8 @@ public class ProxyServerStarter {
         for (Thread thread: threads) {
             try {
                 thread.join();
-            } catch (Exception e) {
+            }
+            catch (Exception e) {
             }
         }
     }

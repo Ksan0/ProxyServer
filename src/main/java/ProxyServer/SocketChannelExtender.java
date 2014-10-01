@@ -2,17 +2,15 @@ package ProxyServer;
 
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {
     private ConnectionsAccepter connectionsAccepter;
+    private ConnectionsWorker connectionsWorker;
     private SocketChannelExtender secondChannel;
 
     private SocketChannel channel;
@@ -20,13 +18,18 @@ public class SocketChannelExtender {
 
     private AtomicInteger rwState;
 
-    public SocketChannelExtender (ConnectionsAccepter connectionsAccepter, SocketChannel channel) {
+    public SocketChannelExtender (ConnectionsAccepter connectionsAccepter, ConnectionsWorker connectionsWorker, SocketChannel channel) {
         this.connectionsAccepter = connectionsAccepter;
+        this.connectionsWorker = connectionsWorker;
         this.channel = channel;
 
         readBuffer = null;
 
         rwState = new AtomicInteger(0);
+    }
+
+    public SocketChannelExtender getSecondChannel() {
+        return secondChannel;
     }
 
     public void setSecondChannel(SocketChannelExtender secondChannel) {
@@ -35,10 +38,6 @@ public class SocketChannelExtender {
 
     public SocketChannel getChannel() {
         return channel;
-    }
-
-    public SocketChannel getSecondChannel() {
-        return secondChannel.channel;
     }
 
     public void setRWState(int value) {
@@ -65,7 +64,7 @@ public class SocketChannelExtender {
         } catch (NotYetConnectedException e) {
         } catch (IOException e) {
             close();
-            return ConnectionsWorker.RES_REMOVE_SOCKETS;
+            return ConnectionsWorker.RES_REMOVED_SOCKET;
         }
 
         return result;
@@ -84,6 +83,7 @@ public class SocketChannelExtender {
         }
 
         connectionsAccepter.removeSocketChannel(this);
+        connectionsWorker.removeSocket(this);
     }
 
     private int readWriteCycle(RWSocketChannelBuffer usingBuffer, RWSocketChannelBuffer workerBuffer)

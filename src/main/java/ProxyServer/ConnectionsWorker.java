@@ -4,15 +4,17 @@ package ProxyServer;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 
 public class ConnectionsWorker implements Runnable {
     public static final int DEFAULT_BUFFER_SIZE = 1024 * 16;
 
-    public static final int RES_REMOVE_SOCKETS = 1 << 0;
+    public static final int RES_REMOVED_SOCKET = 1 << 0;
     public static final int RES_ALLOCATE_BUFFER = 1 << 1;
 
     private AtomicLong lastCycleRunTime;
@@ -32,9 +34,15 @@ public class ConnectionsWorker implements Runnable {
     }
 
 
-    public void addPair(SocketChannelExtender first, SocketChannelExtender second) {
-        sockets.put(first.getChannel(), first);
-        sockets.put(second.getChannel(), second);
+    public void addSocket(SocketChannelExtender socket) {
+        sockets.put(socket.getChannel(), socket);
+    }
+
+
+    public void removeSocket(SocketChannelExtender socket) {
+        // we don't know who call "remove": client or proxy socket. So, try remove both
+        sockets.remove(socket.getChannel());
+        sockets.remove(socket.getSecondChannel().getChannel());
     }
 
 
@@ -47,15 +55,9 @@ public class ConnectionsWorker implements Runnable {
 
             for(Map.Entry<SocketChannel, SocketChannelExtender> entry: sockets.entrySet()) {
 
-                int res = entry.getValue().exec(readBuffer);
-                if ((res & RES_REMOVE_SOCKETS) != 0) {
-                    sockets.remove(entry.getValue().getSecondChannel());
-                    sockets.remove(entry.getKey());
-                }
-                if ((res & RES_ALLOCATE_BUFFER) != 0) {
-                    readBuffer = new RWSocketChannelBuffer(DEFAULT_BUFFER_SIZE);
-                } else {
-                    readBuffer.clear();
+                SocketChannelExtender first = entry.getValue();
+                if (execForSocket(first, first)) {
+                    execForSocket(first.getSecondChannel(), first);
                 }
 
             }
@@ -69,5 +71,22 @@ public class ConnectionsWorker implements Runnable {
                 }
             }
         }
+    }
+
+
+    private boolean execForSocket(SocketChannelExtender socket, SocketChannelExtender removeBy) {
+        boolean socketAlive = true;
+        int res = socket.exec(readBuffer);
+
+        if ((res & RES_REMOVED_SOCKET) != 0) {
+            socketAlive = false;
+        }
+        if ((res & RES_ALLOCATE_BUFFER) != 0) {
+            readBuffer = new RWSocketChannelBuffer(DEFAULT_BUFFER_SIZE);
+        } else {
+            readBuffer.clear();
+        }
+
+        return socketAlive;
     }
 }

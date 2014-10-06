@@ -80,30 +80,37 @@ public class ConnectionsAccepter implements Runnable {
         try {
             while(true) {
                 for (ConnectionsListenInfo info: connectionsListenInfo) {
-                    info.selector.selectNow();
+                    info.selector.select();
                     Set<SelectionKey> selectedKeys = info.selector.selectedKeys();
 
-                    for (SelectionKey key : selectedKeys) {
-                        try {
-                            if (key.isAcceptable()) {
-                                accept(info);
-                            }
-                            if (key.isConnectable()) {
-                                finishConnect(info, key);
-                            }
+                    if (!selectedKeys.isEmpty()) {
+                        for (SelectionKey key : selectedKeys) {
+                            try {
+                                if (key.isAcceptable()) {
+                                    accept(info);
+                                }
+                                if (key.isConnectable()) {
+                                    finishConnect(info, key);
+                                }
 
-                            int newRWState = key.readyOps();
-                            if (newRWState != 0) {
+                                int newRWState = key.readyOps();
+                                if (newRWState != 0) {
+                                    SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
+                                    if (socketChannelExtender != null) {
+                                        socketChannelExtender.setRWState(newRWState);
+                                    }
+                                }
+                            } catch (CancelledKeyException | IOException e) {
                                 SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
                                 if (socketChannelExtender != null) {
-                                    socketChannelExtender.setRWState(newRWState);
+                                    socketChannelExtender.close();
                                 }
                             }
-                        } catch (CancelledKeyException | IOException e) {
-                            SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
-                            if (socketChannelExtender != null) {
-                                socketChannelExtender.close();
-                            }
+                        }
+                    } else {
+                        try {
+                            Thread.sleep(1);
+                        } catch(Exception e) {
                         }
                     }
 

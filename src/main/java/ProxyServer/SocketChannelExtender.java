@@ -48,6 +48,10 @@ public class SocketChannelExtender {
         int result = 0;
         int rwState = this.rwState.get();
 
+        if (rwState == 0) {
+            return ConnectionsWorker.RES_IDLE_CALL;
+        }
+
         try {
             if ((rwState & SelectionKey.OP_READ) != 0) {
                 this.rwState.set(rwState & ~SelectionKey.OP_READ);

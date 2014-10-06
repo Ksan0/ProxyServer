@@ -1,4 +1,4 @@
-package ProxyServer;
+package proxyServer;
 
 
 import java.io.IOException;

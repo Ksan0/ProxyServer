@@ -1,6 +1,8 @@
 package proxyServer;
 
 
+import com.sun.org.apache.bcel.internal.generic.Select;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
@@ -28,7 +30,7 @@ public class ConnectionsAccepter implements Runnable {
     }
 
     // local for object
-    private ArrayList<ConnectionsListenInfo> connectionsListenInfo;
+    private ConnectionsListenInfo connectionsListenInfo;
     private HashMap<SocketChannel, SocketChannelExtender> sockets;
     private ConcurrentLinkedQueue<SocketChannelExtender> removeSocketsQueue;
 
@@ -36,29 +38,26 @@ public class ConnectionsAccepter implements Runnable {
     private ArrayList<ConnectionsWorker> workers;
 
 
-    public ConnectionsAccepter(ArrayList<ProxyPortInfo> ports, ArrayList<ConnectionsWorker> workers) {
-        connectionsListenInfo = new ArrayList<>();
+    public ConnectionsAccepter(ProxyPortInfo port, ArrayList<ConnectionsWorker> workers) {
+        connectionsListenInfo = null;
         sockets = new HashMap<>();
         removeSocketsQueue = new ConcurrentLinkedQueue<>();
 
-        for (ProxyPortInfo proxyPortInfo: ports) {
-            try {
-                Selector socketSelector = SelectorProvider.provider().openSelector();
+        try {
+            Selector socketSelector = SelectorProvider.provider().openSelector();
 
-                InetSocketAddress isa = new InetSocketAddress(proxyPortInfo.fromPort);
+            InetSocketAddress isa = new InetSocketAddress(port.fromPort);
 
-                ServerSocketChannel serverChannel = ServerSocketChannel.open();
-                serverChannel.configureBlocking(false);
-                serverChannel.socket().bind(isa);
-                serverChannel.register(socketSelector, SelectionKey.OP_ACCEPT);
+            ServerSocketChannel serverChannel = ServerSocketChannel.open();
+            serverChannel.configureBlocking(false);
+            serverChannel.socket().bind(isa);
+            serverChannel.register(socketSelector, SelectionKey.OP_ACCEPT);
 
-                connectionsListenInfo.add(new ConnectionsListenInfo(proxyPortInfo, serverChannel, socketSelector));
-            }
-            catch (Exception e) {
-                System.err.println("Can't open listen socket at port " + proxyPortInfo.fromPort);
-            }
+            connectionsListenInfo = new ConnectionsListenInfo(port, serverChannel, socketSelector);
         }
-        ports.clear();
+        catch (Exception e) {
+            System.err.println("Can't open listen socket at port " + port.fromPort);
+        }
 
         this.workers = workers;
     }
@@ -72,6 +71,10 @@ public class ConnectionsAccepter implements Runnable {
         removeSocketsQueue.add(socketChannelExtender);
     }
 
+    public Selector getSelector() {
+        return connectionsListenInfo.selector;
+    }
+
 
     @Override
     public void run() {
@@ -79,43 +82,38 @@ public class ConnectionsAccepter implements Runnable {
 
         try {
             while(true) {
-                for (ConnectionsListenInfo info: connectionsListenInfo) {
-                    info.selector.select();
-                    Set<SelectionKey> selectedKeys = info.selector.selectedKeys();
+                connectionsListenInfo.selector.select(1000);
+                Set<SelectionKey> selectedKeys = connectionsListenInfo.selector.selectedKeys();
+                for (SelectionKey key: selectedKeys) {
+                    try {
+                        if (!key.isValid()) {
+                            throw new CancelledKeyException();
+                        }
 
-                    if (!selectedKeys.isEmpty()) {
-                        for (SelectionKey key : selectedKeys) {
-                            try {
-                                if (key.isAcceptable()) {
-                                    accept(info);
-                                }
-                                if (key.isConnectable()) {
-                                    finishConnect(info, key);
-                                }
+                        if (key.isAcceptable()) {
+                            accept(connectionsListenInfo);
+                        }
+                        if (key.isConnectable()) {
+                            finishConnect(connectionsListenInfo, key);
+                        }
 
-                                int newRWState = key.readyOps();
-                                if (newRWState != 0) {
-                                    SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
-                                    if (socketChannelExtender != null) {
-                                        socketChannelExtender.setRWState(newRWState);
-                                    }
-                                }
-                            } catch (CancelledKeyException | IOException e) {
-                                SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
-                                if (socketChannelExtender != null) {
-                                    socketChannelExtender.close();
-                                }
+                        int newRWState = key.readyOps();
+                        if (newRWState != 0) {
+                            SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
+                            if (socketChannelExtender != null) {
+                                socketChannelExtender.setRWState(newRWState);
                             }
                         }
-                    } else {
-                        try {
-                            Thread.sleep(1);
-                        } catch(Exception e) {
+                    } catch (CancelledKeyException | IOException e) {
+                        SocketChannelExtender socketChannelExtender = sockets.get(key.channel());
+                        if (socketChannelExtender != null) {
+                            socketChannelExtender.close();
+                        } else {
+                            key.channel().close();
                         }
                     }
-
-                    selectedKeys.clear();
                 }
+                selectedKeys.clear();
 
                 try {
                     Iterator<SocketChannelExtender> iterator = removeSocketsQueue.iterator();
@@ -146,7 +144,7 @@ public class ConnectionsAccepter implements Runnable {
         clientSocketChannel.configureBlocking(false);
         clientSocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
         clientSocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-        clientSocketChannel.register(info.selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+        clientSocketChannel.register(info.selector, SelectionKey.OP_READ);
         SocketChannelExtender clientSocketChannelExtender = new SocketChannelExtender(this, worker, clientSocketChannel);
         sockets.put(clientSocketChannel, clientSocketChannelExtender);
 
@@ -157,7 +155,7 @@ public class ConnectionsAccepter implements Runnable {
         if (!proxySocketChannel.connect(info.proxyPortInfo.toAddress)) {
             proxySocketChannel.register(info.selector, SelectionKey.OP_CONNECT);
         } else {
-            proxySocketChannel.register(info.selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+            proxySocketChannel.register(info.selector, SelectionKey.OP_READ);
         }
         SocketChannelExtender proxySocketChannelExtender = new SocketChannelExtender(this, worker, proxySocketChannel);
         sockets.put(proxySocketChannel, proxySocketChannelExtender);
@@ -174,7 +172,7 @@ public class ConnectionsAccepter implements Runnable {
     {
         SocketChannel channel = (SocketChannel) key.channel();
         channel.finishConnect();
-        channel.register(info.selector, SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+        channel.register(info.selector, SelectionKey.OP_READ);
     }
 
 

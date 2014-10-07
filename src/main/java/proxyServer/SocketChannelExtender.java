@@ -6,6 +6,7 @@ import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {
@@ -45,26 +46,44 @@ public class SocketChannelExtender {
     }
 
     public int exec(RWSocketChannelBuffer workerBuffer) {
-        int result = 0;
         int rwState = this.rwState.get();
 
-        if (rwState == 0) {
+        if ((rwState & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) == 0) {
             return ConnectionsWorker.RES_IDLE_CALL;
         }
 
+        int result = 0;
+
         try {
+
             if ((rwState & SelectionKey.OP_READ) != 0) {
                 this.rwState.set(rwState & ~SelectionKey.OP_READ);
                 RWSocketChannelBuffer usingBuffer = readBuffer != null ? readBuffer : workerBuffer;
-                result |= readWriteCycle(usingBuffer, workerBuffer);
+                result |= read(usingBuffer, workerBuffer);
+
+                SelectionKey secondKey = secondChannel.channel.keyFor(connectionsAccepter.getSelector());
+                if (secondKey != null) {
+                    if (readBuffer != null) {
+                        secondKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+                    } else {
+                        secondKey.interestOps(SelectionKey.OP_READ);
+                    }
+                }
+
             }
 
             if ((rwState & SelectionKey.OP_WRITE) != 0) {
                 this.rwState.set(rwState & ~SelectionKey.OP_WRITE);
-                if (secondChannel.readBuffer != null) {
-                    result |= secondChannel.readWriteCycle(secondChannel.readBuffer, null);
+                result |= write();
+
+                SelectionKey key = channel.keyFor(connectionsAccepter.getSelector());
+                if (key != null) {
+                    if (secondChannel.readBuffer == null) {
+                        key.interestOps(SelectionKey.OP_READ);
+                    }
                 }
             }
+
         } catch (NotYetConnectedException e) {
         } catch (IOException e) {
             close();
@@ -90,16 +109,19 @@ public class SocketChannelExtender {
         connectionsWorker.removeSocket(this);
     }
 
-    private int readWriteCycle(RWSocketChannelBuffer usingBuffer, RWSocketChannelBuffer workerBuffer)
+    private int read(RWSocketChannelBuffer usingBuffer, RWSocketChannelBuffer workerBuffer)
             throws IOException
     {
-        int result = 0;
+        int result = ConnectionsWorker.RES_IDLE_CALL;
 
         int read;
         int write;
         do {
             write = usingBuffer.write(secondChannel.channel);
             read = usingBuffer.read(channel);
+            if (read > 0 || write > 0) {
+                result &= ~ConnectionsWorker.RES_IDLE_CALL;
+            }
             if (read == -1) {
                 throw new IOException();
             }
@@ -117,6 +139,26 @@ public class SocketChannelExtender {
         }
 
         return result;
+    }
+
+    private int write()
+            throws IOException
+    {
+        if (secondChannel.readBuffer == null) {
+            return ConnectionsWorker.RES_IDLE_CALL;
+        }
+
+        int write = secondChannel.readBuffer.write(channel);
+
+        if (!secondChannel.readBuffer.canWrite()) {
+            secondChannel.readBuffer = null;
+        }
+
+        if (write <= 0) {
+            return ConnectionsWorker.RES_IDLE_CALL;
+        }
+
+        return 0;
     }
 
 }

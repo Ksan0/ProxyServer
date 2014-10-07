@@ -32,13 +32,10 @@ public class RWSocketChannelBuffer {
         buffer.limit(buffer.capacity());
         buffer.position(rPos);
 
-        int read = 0;
-        if (buffer.remaining() > 0) {
-            read = channel.read(buffer);
-            if (read != -1) {
-                dataLen += read;
-                rPos = buffer.position();
-            }
+        int read = channel.read(buffer);
+        if (read != -1) {
+            dataLen += read;
+            rPos = buffer.position();
         }
 
         return read;

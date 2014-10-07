@@ -25,6 +25,7 @@ public class ConnectionsWorker implements Runnable {
     private AtomicLong lastCycleRunTime;
     private ConcurrentHashMap<SocketChannel, SocketChannelExtender> sockets;
 
+
     private RWSocketChannelBuffer readBuffer;
 
     public ConnectionsWorker() {
@@ -39,6 +40,8 @@ public class ConnectionsWorker implements Runnable {
     }
 
 
+    static AtomicLong l = new AtomicLong(0);
+
     public void addSocket(SocketChannelExtender socket) {
         sockets.put(socket.getChannel(), socket);
     }
@@ -49,7 +52,6 @@ public class ConnectionsWorker implements Runnable {
         sockets.remove(socket.getChannel());
         sockets.remove(socket.getSecondChannel().getChannel());
     }
-
 
     @Override
     public void run() {
@@ -62,24 +64,30 @@ public class ConnectionsWorker implements Runnable {
             for(Map.Entry<SocketChannel, SocketChannelExtender> entry: sockets.entrySet()) {
 
                 SocketChannelExtender first = entry.getValue();
-                ExecConnectionStatus status = execForSocket(first, first);
+                ExecConnectionStatus status = execForSocket(first);
                 if (status.alive) {
                     if (!status.idle) {
                         idle = false;
                     }
-                    status = execForSocket(first.getSecondChannel(), first);
+                    status = execForSocket(first.getSecondChannel());
                     if (status.alive && !status.idle) {
                         idle = false;
-                    }
+                    }int result = 0;
                 }
 
             }
 
             lastCycleRunTime.set((new Date()).getTime() - timeCycleBegin);
 
-            if (sockets.isEmpty() || idle) {
+            int sleepTime = 0;
+            if (sockets.isEmpty()) {
+                sleepTime = 10;
+            } else if (idle) {
+                sleepTime = 1;
+            }
+            if (sleepTime > 0) {
                 try {
-                    Thread.currentThread().sleep(1);
+                    Thread.sleep(sleepTime);
                 } catch (Exception e) {
                 }
             }
@@ -87,7 +95,7 @@ public class ConnectionsWorker implements Runnable {
     }
 
 
-    private ExecConnectionStatus execForSocket(SocketChannelExtender socket, SocketChannelExtender removeBy) {
+    private ExecConnectionStatus execForSocket(SocketChannelExtender socket) {
         ExecConnectionStatus status = new ExecConnectionStatus();
         int res = socket.exec(readBuffer);
 

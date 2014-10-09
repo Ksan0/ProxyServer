@@ -10,23 +10,17 @@ import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {
-    private ConnectionsAccepter connectionsAccepter;
     private ConnectionsWorker connectionsWorker;
     private SocketChannelExtender secondChannel;
 
     private SocketChannel channel;
     private RWSocketChannelBuffer readBuffer;  // what we read from this.channel and must write to secondChannel
 
-    private AtomicInteger rwState;
-
-    public SocketChannelExtender (ConnectionsAccepter connectionsAccepter, ConnectionsWorker connectionsWorker, SocketChannel channel) {
-        this.connectionsAccepter = connectionsAccepter;
+    public SocketChannelExtender (ConnectionsWorker connectionsWorker, SocketChannel channel) {
         this.connectionsWorker = connectionsWorker;
         this.channel = channel;
 
         readBuffer = null;
-
-        rwState = new AtomicInteger(0);
     }
 
     public SocketChannelExtender getSecondChannel() {
@@ -41,24 +35,14 @@ public class SocketChannelExtender {
         return channel;
     }
 
-    public void setRWState(int value) {
-        rwState.set(value);
-    }
-
     public int exec(RWSocketChannelBuffer workerBuffer) {
-        int rwState = this.rwState.get();
-
-        if ((rwState & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) == 0) {
-            return ConnectionsWorker.RES_IDLE_CALL;
-        }
-
         int result = 0;
 
         try {
 
             if ((rwState & SelectionKey.OP_READ) != 0) {
                 this.rwState.set(rwState & ~SelectionKey.OP_READ);
-                RWSocketChannelBuffer usingBuffer = readBuffer != null ? readBuffer : workerBuffer;
+
                 result |= read(usingBuffer, workerBuffer);
 
                 SelectionKey secondKey = secondChannel.channel.keyFor(connectionsAccepter.getSelector());
@@ -109,19 +93,17 @@ public class SocketChannelExtender {
         connectionsWorker.removeSocket(this);
     }
 
-    private int read(RWSocketChannelBuffer usingBuffer, RWSocketChannelBuffer workerBuffer)
+    private int read(RWSocketChannelBuffer workerBuffer)
             throws IOException
     {
-        int result = ConnectionsWorker.RES_IDLE_CALL;
+        RWSocketChannelBuffer usingBuffer = readBuffer != null ? readBuffer : workerBuffer;
+        int result = 0;
 
         int read;
         int write;
         do {
             write = usingBuffer.write(secondChannel.channel);
             read = usingBuffer.read(channel);
-            if (read > 0 || write > 0) {
-                result &= ~ConnectionsWorker.RES_IDLE_CALL;
-            }
             if (read == -1) {
                 throw new IOException();
             }
@@ -141,24 +123,15 @@ public class SocketChannelExtender {
         return result;
     }
 
-    private int write()
+    private void write()
             throws IOException
     {
-        if (secondChannel.readBuffer == null) {
-            return ConnectionsWorker.RES_IDLE_CALL;
+        if (secondChannel.readBuffer != null) {
+            secondChannel.readBuffer.write(channel);
+            if (!secondChannel.readBuffer.canWrite()) {
+                secondChannel.readBuffer = null;
+            }
         }
-
-        int write = secondChannel.readBuffer.write(channel);
-
-        if (!secondChannel.readBuffer.canWrite()) {
-            secondChannel.readBuffer = null;
-        }
-
-        if (write <= 0) {
-            return ConnectionsWorker.RES_IDLE_CALL;
-        }
-
-        return 0;
     }
 
 }

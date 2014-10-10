@@ -1,6 +1,7 @@
 package proxyServer;
 
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 
@@ -44,10 +45,15 @@ public class ProxyServerStarter {
 
     private static void InitWorkers(ArrayList<Thread> threads, ArrayList<ConnectionsWorker> workers) {
         for (int i = 0; i < WORKERS_COUNT; ++i) {
-            ConnectionsWorker worker = new ConnectionsWorker();
-            workers.add(worker);
-            Thread thread = new Thread(worker);
-            threads.add(thread);
+            try {
+                ConnectionsWorker worker = new ConnectionsWorker();
+                workers.add(worker);
+                Thread thread = new Thread(worker);
+                threads.add(thread);
+            } catch (IOException e) {
+                System.err.println("Can't create worker");
+                e.printStackTrace();
+            }
         }
     }
 

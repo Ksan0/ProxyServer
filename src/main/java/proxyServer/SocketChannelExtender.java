@@ -3,21 +3,16 @@ package proxyServer;
 
 import java.io.IOException;
 import java.nio.channels.NotYetConnectedException;
-import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {
-    private ConnectionsWorker connectionsWorker;
     private SocketChannelExtender secondChannel;
 
     private SocketChannel channel;
     private RWSocketChannelBuffer readBuffer;  // what we read from this.channel and must write to secondChannel
 
-    public SocketChannelExtender (ConnectionsWorker connectionsWorker, SocketChannel channel) {
-        this.connectionsWorker = connectionsWorker;
+    public SocketChannelExtender (SocketChannel channel) {
         this.channel = channel;
 
         readBuffer = null;
@@ -35,48 +30,6 @@ public class SocketChannelExtender {
         return channel;
     }
 
-    public int exec(RWSocketChannelBuffer workerBuffer) {
-        int result = 0;
-
-        try {
-
-            if ((rwState & SelectionKey.OP_READ) != 0) {
-                this.rwState.set(rwState & ~SelectionKey.OP_READ);
-
-                result |= read(usingBuffer, workerBuffer);
-
-                SelectionKey secondKey = secondChannel.channel.keyFor(connectionsAccepter.getSelector());
-                if (secondKey != null) {
-                    if (readBuffer != null) {
-                        secondKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
-                    } else {
-                        secondKey.interestOps(SelectionKey.OP_READ);
-                    }
-                }
-
-            }
-
-            if ((rwState & SelectionKey.OP_WRITE) != 0) {
-                this.rwState.set(rwState & ~SelectionKey.OP_WRITE);
-                result |= write();
-
-                SelectionKey key = channel.keyFor(connectionsAccepter.getSelector());
-                if (key != null) {
-                    if (secondChannel.readBuffer == null) {
-                        key.interestOps(SelectionKey.OP_READ);
-                    }
-                }
-            }
-
-        } catch (NotYetConnectedException e) {
-        } catch (IOException e) {
-            close();
-            return ConnectionsWorker.RES_REMOVED_SOCKET;
-        }
-
-        return result;
-    }
-
     public void close() {
         try {
             readBuffer = null;
@@ -88,28 +41,29 @@ public class SocketChannelExtender {
             secondChannel.channel.close();
         } catch (Exception e) {
         }
-
-        connectionsAccepter.removeSocketChannel(this);
-        connectionsWorker.removeSocket(this);
     }
 
-    private int read(RWSocketChannelBuffer workerBuffer)
-            throws IOException
+    public int read(RWSocketChannelBuffer workerBuffer)
     {
         RWSocketChannelBuffer usingBuffer = readBuffer != null ? readBuffer : workerBuffer;
         int result = 0;
 
-        int read;
-        int write;
-        do {
-            write = usingBuffer.write(secondChannel.channel);
-            read = usingBuffer.read(channel);
-            if (read == -1) {
-                throw new IOException();
-            }
-        } while (usingBuffer.canWrite() && read > 0 && write > 0);
+        try {
+            int read;
+            int write;
+            do {
+                write = usingBuffer.write(secondChannel.channel);
+                read = usingBuffer.read(channel);
+                if (read == -1) {
+                    throw new IOException();
+                }
+            } while (!usingBuffer.isEmpty() && read > 0 && write > 0);
+        } catch (NotYetConnectedException e) {
+        } catch (IOException e) {
+            return ConnectionsWorker.RES_CLOSE_SOCKET;
+        }
 
-        if (usingBuffer.canWrite()) {
+        if (!usingBuffer.isEmpty()) {
             if (usingBuffer == workerBuffer) {
                 readBuffer = workerBuffer;
                 result |= ConnectionsWorker.RES_ALLOCATE_BUFFER;
@@ -117,21 +71,34 @@ public class SocketChannelExtender {
         } else {
             if (usingBuffer == readBuffer) {
                 readBuffer = null;
+                result |= ConnectionsWorker.RES_WRITE_DATA_END;
             }
+        }
+
+        if (readBuffer != null) {
+            result |= ConnectionsWorker.RES_WRITE_PAIR_SOCKET;
         }
 
         return result;
     }
 
-    private void write()
-            throws IOException
+    public int write()
     {
-        if (secondChannel.readBuffer != null) {
-            secondChannel.readBuffer.write(channel);
-            if (!secondChannel.readBuffer.canWrite()) {
-                secondChannel.readBuffer = null;
+        int result = 0;
+
+        try {
+            if (secondChannel.readBuffer != null) {
+                secondChannel.readBuffer.write(channel);
+                if (secondChannel.readBuffer.isEmpty()) {
+                    secondChannel.readBuffer = null;
+                    result |= ConnectionsWorker.RES_WRITE_DATA_END;
+                }
             }
+        } catch (IOException e) {
+            return ConnectionsWorker.RES_CLOSE_SOCKET;
         }
+
+        return result;
     }
 
 }

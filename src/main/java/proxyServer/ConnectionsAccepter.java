@@ -99,13 +99,13 @@ public class ConnectionsAccepter implements Runnable {
         clientSocketChannel.configureBlocking(false);
         clientSocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
         clientSocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-        SocketChannelExtender clientSocketChannelExtender = new SocketChannelExtender(this, worker, clientSocketChannel);
+        SocketChannelExtender clientSocketChannelExtender = new SocketChannelExtender(clientSocketChannel);
 
         SocketChannel proxySocketChannel = SocketChannel.open();
         proxySocketChannel.configureBlocking(false);
         proxySocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
         proxySocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-        SocketChannelExtender proxySocketChannelExtender = new SocketChannelExtender(this, worker, proxySocketChannel);
+        SocketChannelExtender proxySocketChannelExtender = new SocketChannelExtender(proxySocketChannel);
 
         clientSocketChannelExtender.setSecondChannel(proxySocketChannelExtender);
         proxySocketChannelExtender.setSecondChannel(clientSocketChannelExtender);

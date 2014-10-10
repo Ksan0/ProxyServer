@@ -61,7 +61,7 @@ public class RWSocketChannelBuffer {
         return write;
     }
 
-    public boolean canWrite() {
-        return dataLen > 0;
+    public boolean isEmpty() {
+        return dataLen <= 0;
     }
 }

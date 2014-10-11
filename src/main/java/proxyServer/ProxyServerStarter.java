@@ -6,7 +6,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 
 public class ProxyServerStarter {
-    private static final int WORKERS_COUNT = 8;
+    private static final int WORKERS_COUNT = 4;
 
     public static void main(String args[]) {
         ArrayList<Thread> threads = new ArrayList<>();
@@ -33,13 +33,27 @@ public class ProxyServerStarter {
             thread.start();
         }
 
+        while(true) {
+            for (ConnectionsWorker wrk : workers) {
+                System.out.print(
+                        "selector " + wrk.keysCount() + "/hashmap " + wrk.socketsSize() + " (" + wrk.timeMs() + "ms) | "
+                );
+            }
+            System.out.println();
+            try {
+                Thread.sleep(1000);
+            } catch (Exception e) {
+            }
+        }
+
+        /*
         for (Thread thread: threads) {
             try {
                 thread.join();
             }
             catch (Exception e) {
             }
-        }
+        }*/
     }
 
 
@@ -59,10 +73,10 @@ public class ProxyServerStarter {
 
 
     private static void InitAccepters(ArrayList<Thread> threads, ArrayList<ConnectionsAccepter> accepters, ArrayList<ConnectionsWorker> workers) {
-        accepters.add(new ConnectionsAccepter(new ProxyPortInfo((short)9001, new InetSocketAddress("localhost", 80)), workers));
-        accepters.add(new ConnectionsAccepter(new ProxyPortInfo((short)9002, new InetSocketAddress("localhost", 80)), workers));
-        accepters.add(new ConnectionsAccepter(new ProxyPortInfo((short)9081, new InetSocketAddress("localhost", 8082)), workers));
-        accepters.add(new ConnectionsAccepter(new ProxyPortInfo((short)9082, new InetSocketAddress("localhost", 8082)), workers));
+        accepters.add(new ConnectionsAccepter((short)9001, new InetSocketAddress("localhost", 80), workers));
+        accepters.add(new ConnectionsAccepter((short)9081, new InetSocketAddress("localhost", 8081), workers));
+        accepters.add(new ConnectionsAccepter((short)9002, new InetSocketAddress("localhost", 80), workers));
+        accepters.add(new ConnectionsAccepter((short)9082, new InetSocketAddress("localhost", 8082), workers));
 
         for (ConnectionsAccepter connectionsAccepter: accepters) {
             Thread thread = new Thread(connectionsAccepter);

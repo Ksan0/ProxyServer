@@ -7,12 +7,29 @@ import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 
 public class ConnectionsWorker implements Runnable {
+
+    class RegisterInfo {
+        public SocketChannel clientChannel;
+        public int clientOps;
+        public SocketChannel proxyChannel;
+        public int proxyOps;
+
+        RegisterInfo(SocketChannel clientChannel, int clientOps, SocketChannel proxyChannel, int proxyOps) {
+            this.clientChannel = clientChannel;
+            this.clientOps = clientOps;
+            this.proxyChannel = proxyChannel;
+            this.proxyOps = proxyOps;
+        }
+    }
+
 
     public static final int DEFAULT_BUFFER_SIZE = 1024 * 16;
 
@@ -22,7 +39,8 @@ public class ConnectionsWorker implements Runnable {
     public static final int RES_WRITE_DATA_END      = 1 << 4;
 
     private AtomicLong lastCycleRunTime;
-    private ConcurrentHashMap<SocketChannel, SocketChannelExtender> sockets;
+    private HashMap<SocketChannel, SocketChannelExtender> sockets;
+    private ConcurrentLinkedQueue<RegisterInfo> registerSockets;
 
     private Selector selector;
     private RWSocketChannelBuffer readBuffer;
@@ -31,7 +49,8 @@ public class ConnectionsWorker implements Runnable {
             throws IOException
     {
         lastCycleRunTime = new AtomicLong(0);
-        sockets = new ConcurrentHashMap<>();
+        sockets = new HashMap<>();
+        registerSockets = new ConcurrentLinkedQueue<>();
         selector = SelectorProvider.provider().openSelector();
         readBuffer = new RWSocketChannelBuffer(DEFAULT_BUFFER_SIZE);
     }
@@ -43,21 +62,32 @@ public class ConnectionsWorker implements Runnable {
 
 
     public void addSocketPair(SocketChannelExtender clientSocketChannel, SocketChannelExtender proxySocketChannel, boolean proxyNeedFinishConnection)
-            throws IOException
     {
-        selector.wakeup();
-
-        clientSocketChannel.getChannel().register(selector, SelectionKey.OP_READ);
-        if (proxyNeedFinishConnection) {
-            proxySocketChannel.getChannel().register(selector, SelectionKey.OP_CONNECT);
-        } else {
-            proxySocketChannel.getChannel().register(selector, SelectionKey.OP_READ);
-        }
-
         sockets.put(clientSocketChannel.getChannel(), clientSocketChannel);
         sockets.put(proxySocketChannel.getChannel(), proxySocketChannel);
+
+        registerSockets.add(new RegisterInfo(
+                clientSocketChannel.getChannel(),
+                SelectionKey.OP_READ,
+                proxySocketChannel.getChannel(),
+                proxyNeedFinishConnection ? SelectionKey.OP_CONNECT : SelectionKey.OP_READ
+        ));
+
+        selector.wakeup();
     }
 
+
+    public int keysCount() {
+        return selector.keys().size();
+    }
+
+    public int socketsSize() {
+        return sockets.size();
+    }
+
+    public long timeMs() {
+        return lastCycleRunTime.get();
+    }
 
     @Override
     public void run() {
@@ -79,13 +109,20 @@ public class ConnectionsWorker implements Runnable {
                         if (socketChannelExtender != null) {
                             if (key.isConnectable()) {
                                 finishConnect(key);
+                                Debug.LogEnd();
                             }
                             if (key.isReadable()) {
+                                Debug.LogStart(socketChannelExtender.d_getID(), "read");
                                 read(socketChannelExtender);
+                                Debug.LogEnd();
                             }
                             if (key.isWritable()) {
+                                Debug.LogStart(socketChannelExtender.d_getID(), "write");
                                 write(socketChannelExtender, key);
+                                Debug.LogEnd();
                             }
+                        } else {
+                            key.channel().close();
                         }
                     } catch (CancelledKeyException | IOException e) {
                         SocketChannelExtender socket = sockets.get(key.channel());
@@ -97,11 +134,25 @@ public class ConnectionsWorker implements Runnable {
                     }
                 }
                 selectedKeys.clear();
-                lastCycleRunTime.set((new Date()).getTime() - timeCycleBegin);
+
+                Iterator<RegisterInfo> iter = registerSockets.iterator();
+                while(iter.hasNext()) {
+                    RegisterInfo regInfo = iter.next();
+                    iter.remove();
+                    regInfo.clientChannel.register(this.selector, regInfo.clientOps);
+                    regInfo.proxyChannel.register(this.selector, regInfo.proxyOps);
+                }
+
+                if (!sockets.isEmpty()) {
+                    lastCycleRunTime.set((new Date()).getTime() - timeCycleBegin);
+                } else {
+                    lastCycleRunTime.set(0);
+                }
             }
         } catch (Exception e) {
             System.err.println("Some problems with worker");
             e.printStackTrace();
+            System.exit(1);
         }
     }
 
@@ -110,8 +161,9 @@ public class ConnectionsWorker implements Runnable {
             throws IOException
     {
         SocketChannel channel = (SocketChannel) key.channel();
-        channel.finishConnect();
-        key.interestOps(SelectionKey.OP_READ);
+        if (channel.finishConnect()) {
+            key.interestOps(SelectionKey.OP_READ);
+        }
     }
 
     private void read(SocketChannelExtender socket) {
@@ -152,9 +204,11 @@ public class ConnectionsWorker implements Runnable {
 
 
     private void closeSocketPair(SocketChannelExtender socket) {
+        Debug.LogStart(socket.d_getID(), "closeSocketPair");
         socket.close();
 
         sockets.remove(socket.getChannel());
         sockets.remove(socket.getSecondChannel().getChannel());
+        Debug.LogEnd();
     }
 }

@@ -4,18 +4,28 @@ package proxyServer;
 import java.io.IOException;
 import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {
+    private static AtomicLong d_idCounter = new AtomicLong(0);
+    private long d_id;
+
     private SocketChannelExtender secondChannel;
 
     private SocketChannel channel;
     private RWSocketChannelBuffer readBuffer;  // what we read from this.channel and must write to secondChannel
 
     public SocketChannelExtender (SocketChannel channel) {
+        d_id = d_idCounter.incrementAndGet();
+
         this.channel = channel;
 
         readBuffer = null;
+    }
+
+    public long d_getID() {
+        return d_id;
     }
 
     public SocketChannelExtender getSecondChannel() {

@@ -5,68 +5,55 @@ import com.sun.org.apache.bcel.internal.generic.Select;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.channels.*;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 
 public class ConnectionsAccepter implements Runnable {
 
-    private class ConnectionsListenInfo {
-        public ProxyPortInfo proxyPortInfo;
-        public ServerSocketChannel serverSocketChannel;
-        public Selector selector;
-
-        public ConnectionsListenInfo(ProxyPortInfo proxyPortInfo, ServerSocketChannel serverSocketChannel, Selector selector) {
-            this.proxyPortInfo = proxyPortInfo;
-            this.serverSocketChannel = serverSocketChannel;
-            this.selector = selector;
-        }
-    }
 
     // local for object
-    private ConnectionsListenInfo connectionsListenInfo;
+    private SocketAddress proxyToAddress;
+    private ServerSocketChannel serverSocketChannel;
+    private Selector selector;
+
 
     // all workers of process
     private ArrayList<ConnectionsWorker> workers;
 
 
-    public ConnectionsAccepter(ProxyPortInfo port, ArrayList<ConnectionsWorker> workers) {
-        connectionsListenInfo = null;
-
+    public ConnectionsAccepter(short proxyFromPort, SocketAddress proxyToAddress, ArrayList<ConnectionsWorker> workers) {
         try {
-            Selector socketSelector = SelectorProvider.provider().openSelector();
+            this.selector = SelectorProvider.provider().openSelector();
 
-            InetSocketAddress isa = new InetSocketAddress(port.fromPort);
+            InetSocketAddress isa = new InetSocketAddress(proxyFromPort);
 
-            ServerSocketChannel serverChannel = ServerSocketChannel.open();
-            serverChannel.configureBlocking(false);
-            serverChannel.socket().bind(isa);
-            serverChannel.register(socketSelector, SelectionKey.OP_ACCEPT);
-
-            connectionsListenInfo = new ConnectionsListenInfo(port, serverChannel, socketSelector);
+            this.serverSocketChannel = ServerSocketChannel.open();
+            serverSocketChannel.configureBlocking(false);
+            serverSocketChannel.socket().bind(isa);
+            serverSocketChannel.register(this.selector, SelectionKey.OP_ACCEPT);
         }
         catch (Exception e) {
-            System.err.println("Can't open listen socket at port " + port.fromPort);
+            System.err.println("Can't open listen socket at port " + proxyFromPort);
         }
 
+        this.proxyToAddress = proxyToAddress;
         this.workers = workers;
     }
 
 
     @Override
     public void run() {
-        System.out.println("ConnectionAccepter run in thread " + Thread.currentThread().getId());
-
         try {
+            System.out.println( "ConnectionAccepter #" + Thread.currentThread().getId() + ": " + serverSocketChannel.getLocalAddress() + " -> " + proxyToAddress);
+
             while(true) {
-                connectionsListenInfo.selector.select();
-                Set<SelectionKey> selectedKeys = connectionsListenInfo.selector.selectedKeys();
+                selector.select();
+                Set<SelectionKey> selectedKeys = selector.selectedKeys();
                 for (SelectionKey key: selectedKeys) {
                     try {
                         if (!key.isValid()) {
@@ -74,9 +61,9 @@ public class ConnectionsAccepter implements Runnable {
                         }
 
                         if (key.isAcceptable()) {
-                            accept(connectionsListenInfo);
+                            accept();
                         }
-                    } catch (CancelledKeyException | IOException e) {
+                    } catch (CancelledKeyException e) {
                         key.channel().close();
                     }
                 }
@@ -90,29 +77,48 @@ public class ConnectionsAccepter implements Runnable {
     }
 
 
-    private void accept(ConnectionsListenInfo info)
-            throws IOException
+    private void accept()
     {
         ConnectionsWorker worker = findWorkerForConnection();
 
-        SocketChannel clientSocketChannel = info.serverSocketChannel.accept();
-        clientSocketChannel.configureBlocking(false);
-        clientSocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
-        clientSocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-        SocketChannelExtender clientSocketChannelExtender = new SocketChannelExtender(clientSocketChannel);
+        SocketChannel clientSocketChannel = null;
+        SocketChannel proxySocketChannel = null;
 
-        SocketChannel proxySocketChannel = SocketChannel.open();
-        proxySocketChannel.configureBlocking(false);
-        proxySocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
-        proxySocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-        SocketChannelExtender proxySocketChannelExtender = new SocketChannelExtender(proxySocketChannel);
+        try {
+            clientSocketChannel = serverSocketChannel.accept();
+            clientSocketChannel.configureBlocking(false);
+            clientSocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
+            clientSocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+            //clientSocketChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+            SocketChannelExtender clientSocketChannelExtender = new SocketChannelExtender(clientSocketChannel);
 
-        clientSocketChannelExtender.setSecondChannel(proxySocketChannelExtender);
-        proxySocketChannelExtender.setSecondChannel(clientSocketChannelExtender);
+            proxySocketChannel = SocketChannel.open();
+            proxySocketChannel.configureBlocking(false);
+            proxySocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
+            proxySocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+            //proxySocketChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+            SocketChannelExtender proxySocketChannelExtender = new SocketChannelExtender(proxySocketChannel);
 
-        boolean proxyNeedFinishConnection = !proxySocketChannel.connect(info.proxyPortInfo.toAddress);
+            clientSocketChannelExtender.setSecondChannel(proxySocketChannelExtender);
+            proxySocketChannelExtender.setSecondChannel(clientSocketChannelExtender);
 
-        worker.addSocketPair(clientSocketChannelExtender, proxySocketChannelExtender, proxyNeedFinishConnection);
+            boolean proxyNeedFinishConnection = !proxySocketChannel.connect(proxyToAddress);
+
+            worker.addSocketPair(clientSocketChannelExtender, proxySocketChannelExtender, proxyNeedFinishConnection);
+        } catch(IOException e) {
+            try {
+                if (clientSocketChannel != null) {
+                    clientSocketChannel.close();
+                }
+            } catch(IOException idle) {
+            }
+            try {
+                if (proxySocketChannel != null) {
+                    proxySocketChannel.close();
+                }
+            } catch(IOException idle) {
+            }
+        }
     }
 
 

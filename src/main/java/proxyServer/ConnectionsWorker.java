@@ -73,15 +73,6 @@ public class ConnectionsWorker implements Runnable {
         selector.wakeup();
     }
 
-
-    public int keysCount() {
-        return selector.keys().size();
-    }
-
-    public int socketsSize() {
-        return sockets.size();
-    }
-
     public long timeMs() {
         return lastCycleRunTime.get();
     }

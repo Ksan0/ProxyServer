@@ -33,27 +33,13 @@ public class ProxyServerStarter {
             thread.start();
         }
 
-        while(true) {
-            for (ConnectionsWorker wrk : workers) {
-                System.out.print(
-                        "selector " + wrk.keysCount() + "/hashmap " + wrk.socketsSize() + " (" + wrk.timeMs() + "ms) | "
-                );
-            }
-            System.out.println();
-            try {
-                Thread.sleep(1000);
-            } catch (Exception e) {
-            }
-        }
-
-        /*
         for (Thread thread: threads) {
             try {
                 thread.join();
             }
             catch (Exception e) {
             }
-        }*/
+        }
     }
 
 

@@ -4,7 +4,6 @@ package proxyServer;
 import java.io.IOException;
 import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.atomic.AtomicLong;
 
 
 public class SocketChannelExtender {

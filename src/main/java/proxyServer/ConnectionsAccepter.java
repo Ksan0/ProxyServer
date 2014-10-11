@@ -89,14 +89,12 @@ public class ConnectionsAccepter implements Runnable {
             clientSocketChannel.configureBlocking(false);
             clientSocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
             clientSocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-            //clientSocketChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
             SocketChannelExtender clientSocketChannelExtender = new SocketChannelExtender(clientSocketChannel);
 
             proxySocketChannel = SocketChannel.open();
             proxySocketChannel.configureBlocking(false);
             proxySocketChannel.setOption(StandardSocketOptions.SO_KEEPALIVE, true);
             proxySocketChannel.setOption(StandardSocketOptions.TCP_NODELAY, true);
-            //proxySocketChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
             SocketChannelExtender proxySocketChannelExtender = new SocketChannelExtender(proxySocketChannel);
 
             clientSocketChannelExtender.setSecondChannel(proxySocketChannelExtender);

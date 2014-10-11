@@ -17,12 +17,12 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ConnectionsWorker implements Runnable {
 
     class RegisterInfo {
-        public SocketChannel clientChannel;
+        public SocketChannelExtender clientChannel;
         public int clientOps;
-        public SocketChannel proxyChannel;
+        public SocketChannelExtender proxyChannel;
         public int proxyOps;
 
-        RegisterInfo(SocketChannel clientChannel, int clientOps, SocketChannel proxyChannel, int proxyOps) {
+        RegisterInfo(SocketChannelExtender clientChannel, int clientOps, SocketChannelExtender proxyChannel, int proxyOps) {
             this.clientChannel = clientChannel;
             this.clientOps = clientOps;
             this.proxyChannel = proxyChannel;
@@ -63,13 +63,10 @@ public class ConnectionsWorker implements Runnable {
 
     public void addSocketPair(SocketChannelExtender clientSocketChannel, SocketChannelExtender proxySocketChannel, boolean proxyNeedFinishConnection)
     {
-        sockets.put(clientSocketChannel.getChannel(), clientSocketChannel);
-        sockets.put(proxySocketChannel.getChannel(), proxySocketChannel);
-
         registerSockets.add(new RegisterInfo(
-                clientSocketChannel.getChannel(),
+                clientSocketChannel,
                 SelectionKey.OP_READ,
-                proxySocketChannel.getChannel(),
+                proxySocketChannel,
                 proxyNeedFinishConnection ? SelectionKey.OP_CONNECT : SelectionKey.OP_READ
         ));
 
@@ -109,17 +106,12 @@ public class ConnectionsWorker implements Runnable {
                         if (socketChannelExtender != null) {
                             if (key.isConnectable()) {
                                 finishConnect(key);
-                                Debug.LogEnd();
                             }
                             if (key.isReadable()) {
-                                Debug.LogStart(socketChannelExtender.d_getID(), "read");
                                 read(socketChannelExtender);
-                                Debug.LogEnd();
                             }
                             if (key.isWritable()) {
-                                Debug.LogStart(socketChannelExtender.d_getID(), "write");
                                 write(socketChannelExtender, key);
-                                Debug.LogEnd();
                             }
                         } else {
                             key.channel().close();
@@ -139,8 +131,12 @@ public class ConnectionsWorker implements Runnable {
                 while(iter.hasNext()) {
                     RegisterInfo regInfo = iter.next();
                     iter.remove();
-                    regInfo.clientChannel.register(this.selector, regInfo.clientOps);
-                    regInfo.proxyChannel.register(this.selector, regInfo.proxyOps);
+
+                    regInfo.clientChannel.getChannel().register(this.selector, regInfo.clientOps);
+                    regInfo.proxyChannel.getChannel().register(this.selector, regInfo.proxyOps);
+
+                    sockets.put(regInfo.clientChannel.getChannel(), regInfo.clientChannel);
+                    sockets.put(regInfo.proxyChannel.getChannel(), regInfo.proxyChannel);
                 }
 
                 if (!sockets.isEmpty()) {
@@ -171,6 +167,8 @@ public class ConnectionsWorker implements Runnable {
 
         if ((result & RES_CLOSE_SOCKET) != 0) {
             closeSocketPair(socket);
+            readBuffer.clear();
+            return;
         }
         if ((result & RES_ALLOCATE_BUFFER) != 0) {
             readBuffer = new RWSocketChannelBuffer(DEFAULT_BUFFER_SIZE);
@@ -196,6 +194,8 @@ public class ConnectionsWorker implements Runnable {
 
         if ((result & RES_CLOSE_SOCKET) != 0) {
             closeSocketPair(socket);
+            readBuffer.clear();
+            return;
         }
         if ((result & RES_WRITE_DATA_END) != 0) {
             key.interestOps(SelectionKey.OP_READ);
@@ -204,11 +204,9 @@ public class ConnectionsWorker implements Runnable {
 
 
     private void closeSocketPair(SocketChannelExtender socket) {
-        Debug.LogStart(socket.d_getID(), "closeSocketPair");
-        socket.close();
-
-        sockets.remove(socket.getChannel());
         sockets.remove(socket.getSecondChannel().getChannel());
-        Debug.LogEnd();
+        sockets.remove(socket.getChannel());
+
+        socket.close();
     }
 }
